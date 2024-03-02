@@ -17,9 +17,9 @@ from pangeo_forge_recipes.transforms import OpenWithKerchunk, WriteCombinedRefer
 HTTP_REL = 'http://esipfed.org/ns/fedsearch/1.1/data#'
 S3_REL = 'http://esipfed.org/ns/fedsearch/1.1/s3#'
 
-ED_USERNAME = os.environ['EARTHDATA_USERNAME']
-ED_PASSWORD = os.environ['EARTHDATA_PASSWORD']
-earthdata_protocol = os.environ['PROTOCOL'] or 'https'
+ED_USERNAME = os.environ.get('EARTHDATA_USERNAME')
+ED_PASSWORD = os.environ.get('EARTHDATA_PASSWORD')
+earthdata_protocol = os.environ.get('PROTOCOL', 's3')
 
 if earthdata_protocol not in ('https', 's3'):
     raise ValueError(f'Unknown ED_PROTOCOL: {earthdata_protocol}')
@@ -80,29 +80,37 @@ def get_earthdata_token(username, password):
 
 
 def get_s3_creds(username, password, credentials_api=CREDENTIALS_API):
-    login_resp = requests.get(CREDENTIALS_API, allow_redirects=False)
-    login_resp.raise_for_status()
+    # TODO: make this conditional on a new type of protocol
+    import boto3
+    client = boto3.client('sts')
+    creds = client.assume_role(
+        RoleArn=os.environ.get('AWS_ROLE_ARN'),
+        RoleSessionName='mursst-pangeo-forge',
+    )['Credentials']
+    # login_resp = requests.get(CREDENTIALS_API, allow_redirects=False)
+    # login_resp.raise_for_status()
 
-    encoded_auth = base64.b64encode(f'{username}:{password}'.encode('ascii'))
-    auth_redirect = requests.post(
-        login_resp.headers['location'],
-        data={'credentials': encoded_auth},
-        headers={'Origin': credentials_api},
-        allow_redirects=False,
-    )
-    auth_redirect.raise_for_status()
+    # encoded_auth = base64.b64encode(f'{username}:{password}'.encode('ascii'))
+    # auth_redirect = requests.post(
+    #     login_resp.headers['location'],
+    #     data={'credentials': encoded_auth},
+    #     headers={'Origin': credentials_api},
+    #     allow_redirects=False,
+    # )
+    # auth_redirect.raise_for_status()
 
-    final = requests.get(auth_redirect.headers['location'], allow_redirects=False)
-    #import pdb; pdb.set_trace()
-    results = requests.get(CREDENTIALS_API, cookies={'accessToken': final.cookies['accessToken']})
-    #import pdb; pdb.set_trace()
-    results.raise_for_status()
+    # final = requests.get(auth_redirect.headers['location'], allow_redirects=False)
+    # #import pdb; pdb.set_trace()
+    # results = requests.get(CREDENTIALS_API, cookies={'accessToken': final.cookies['accessToken']})
+    # #import pdb; pdb.set_trace()
+    # results.raise_for_status()
 
-    creds = json.loads(results.content)
+    # creds = json.loads(results.content)
+    # NOTE: response from CREDENTIALS_API keys start with a lowercase letter, i.e. `accessKeyId`
     return {
-        'key': creds['accessKeyId'],
-        'secret': creds['secretAccessKey'],
-        'token': creds['sessionToken'],
+        'key': creds['AccessKeyId'],
+        'secret': creds['SecretAccessKey'],
+        'token': creds['SessionToken'],
         'anon': False,
     }
 

@@ -19,6 +19,7 @@ S3_REL = 'http://esipfed.org/ns/fedsearch/1.1/s3#'
 ED_USERNAME = os.environ.get('EARTHDATA_USERNAME')
 ED_PASSWORD = os.environ.get('EARTHDATA_PASSWORD')
 auth_mode = os.environ.get('AUTH_MODE', 'edl')
+iam_role = os.environ.get('AUTH_ROLE')
 
 if auth_mode not in ('edl', 'iamrole'):
     raise ValueError(f'Unsupported auth mode: {auth_mode}')
@@ -33,7 +34,7 @@ missing_date_strings = ['2021-02-20', '2021-02-21', '2022-11-09']
 missing_dates = pd.to_datetime(missing_date_strings)
 dates = [
     d.to_pydatetime().strftime('%Y%m%d')
-    for d in pd.date_range('2002-06-01', '2023-02-23', freq='D')
+    for d in pd.date_range('2002-06-01', '2002-08-01', freq='D')
     if d not in missing_dates
 ]
 
@@ -49,18 +50,28 @@ pattern = FilePattern(make_filename, concat_dim)
 
 def get_s3_creds(username: str = None, password: str = None, credentials_api: str = CREDENTIALS_API):
     if auth_mode == 'iamrole':
-        import boto3
-        client = boto3.client('sts')
-        creds = client.assume_role(
-            RoleArn=os.environ.get('AWS_ROLE_ARN'),
-            RoleSessionName='mursst-pangeo-forge',
-        )['Credentials']
-        return {
-            'key': creds['AccessKeyId'],
-            'secret': creds['SecretAccessKey'],
-            'token': creds['SessionToken'],
-            'anon': False,
-        }
+        role_arn = os.environ.get('AWS_ROLE_ARN')
+        # If AWS_ROLE_ARN is none, it should be that the current process
+        # is already assuming or using a role that has access to the data,
+        # as in the case of a NASA JupyterHub like hub.openveda.cloud.
+        #
+        # If AWS_ROLE_ARN is NOT none, it should be that the current process
+        # can assume the role and the role has access to the data.
+        if role_arn == None:
+            return { 'anon': False }
+        else:
+            import boto3
+            client = boto3.client('sts')
+            creds = client.assume_role(
+                RoleArn=os.environ.get('AWS_ROLE_ARN'),
+                RoleSessionName='mursst-pangeo-forge',
+            )['Credentials']
+            return {
+                'key': creds['AccessKeyId'],
+                'secret': creds['SecretAccessKey'],
+                'token': creds['SessionToken'],
+                'anon': False,
+            }
     elif auth_mode == 'edl': 
         login_resp = requests.get(CREDENTIALS_API, allow_redirects=False)
         login_resp.raise_for_status()

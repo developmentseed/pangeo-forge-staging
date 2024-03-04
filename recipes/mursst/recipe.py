@@ -14,12 +14,10 @@ from requests.auth import HTTPBasicAuth
 from pangeo_forge_recipes.patterns import ConcatDim, FilePattern
 from pangeo_forge_recipes.transforms import OpenWithKerchunk, WriteCombinedReference
 
-S3_REL = 'http://esipfed.org/ns/fedsearch/1.1/s3#'
-
 ED_USERNAME = os.environ.get('EARTHDATA_USERNAME')
 ED_PASSWORD = os.environ.get('EARTHDATA_PASSWORD')
 auth_mode = os.environ.get('AUTH_MODE', 'edl')
-iam_role = os.environ.get('AUTH_ROLE')
+aws_role_arn = os.environ.get('AWS_ROLE_ARN')
 
 if auth_mode not in ('edl', 'iamrole'):
     raise ValueError(f'Unsupported auth mode: {auth_mode}')
@@ -50,20 +48,18 @@ pattern = FilePattern(make_filename, concat_dim)
 
 def get_s3_creds(username: str = None, password: str = None, credentials_api: str = CREDENTIALS_API):
     if auth_mode == 'iamrole':
-        role_arn = os.environ.get('AWS_ROLE_ARN')
         # If AWS_ROLE_ARN is none, it should be that the current process
         # is already assuming or using a role that has access to the data,
         # as in the case of a NASA JupyterHub like hub.openveda.cloud.
-        #
+        if aws_role_arn == None:
+            return { 'anon': False }
         # If AWS_ROLE_ARN is NOT none, it should be that the current process
         # can assume the role and the role has access to the data.
-        if role_arn == None:
-            return { 'anon': False }
         else:
             import boto3
             client = boto3.client('sts')
             creds = client.assume_role(
-                RoleArn=os.environ.get('AWS_ROLE_ARN'),
+                RoleArn=aws_role_arn,
                 RoleSessionName='mursst-pangeo-forge',
             )['Credentials']
             return {

@@ -61,6 +61,7 @@ def get_s3_creds(username: str = None, password: str = None, credentials_api: st
             creds = client.assume_role(
                 RoleArn=aws_role_arn,
                 RoleSessionName='mursst-pangeo-forge',
+                DurationSeconds=43200
             )['Credentials']
             return {
                 'key': creds['AccessKeyId'],

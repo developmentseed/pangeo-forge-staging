@@ -88,23 +88,32 @@ def get_s3_creds(username: str = None, password: str = None, credentials_api: st
             'anon': False,
         }
 
-fsspec_open_kwargs = get_s3_creds(ED_USERNAME, ED_PASSWORD)
+
+class WithCredentialsOpenWithKerchunk(beam.PTransform):
+    def expand(self, pcoll):
+        # Apply the inner transform, passing credentials
+        return pcoll | "Process With Credentials" >> OpenWithKerchunk(
+            remote_protocol='s3',
+            file_type=pattern.file_type,
+            # lat/lon are around 5k, this is the best option for forcing kerchunk to inline them
+            inline_threshold=6000,
+            storage_options=get_s3_creds(ED_USERNAME, ED_PASSWORD),
+        )
+    
+class WithCredentialsWriteCombinedReference(beam.PTransform):
+    def expand(self, pcoll):
+        # Apply the inner transform, passing credentials
+        return pcoll | "Process With Credentials" >> WriteCombinedReference(
+            concat_dims=CONCAT_DIMS,
+            identical_dims=IDENTICAL_DIMS,
+            store_name=SHORT_NAME,
+            remote_options=get_s3_creds(ED_USERNAME, ED_PASSWORD),
+            remote_protocol='s3',
+            mzz_kwargs={'coo_map': {"time": "cf:time"}, 'inline_threshold': 0}
+        )
     
 recipe = (
     beam.Create(pattern.items())
-    | OpenWithKerchunk(
-        remote_protocol='s3',
-        file_type=pattern.file_type,
-        # lat/lon are around 5k, this is the best option for forcing kerchunk to inline them
-        inline_threshold=6000,
-        storage_options=fsspec_open_kwargs,
-    )
-    | WriteCombinedReference(
-        concat_dims=CONCAT_DIMS,
-        identical_dims=IDENTICAL_DIMS,
-        store_name=SHORT_NAME,
-        remote_options=fsspec_open_kwargs,
-        remote_protocol='s3',
-        mzz_kwargs={'coo_map': {"time": "cf:time"}, 'inline_threshold': 0}
-    )
+    | WithCredentialsOpenWithKerchunk()
+    | WithCredentialsWriteCombinedReference()
 )

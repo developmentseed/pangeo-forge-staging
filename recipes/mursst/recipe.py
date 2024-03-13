@@ -47,45 +47,45 @@ def make_filename(time):
 
 concat_dim = ConcatDim('time', dates, nitems_per_file=1)
 pattern = FilePattern(make_filename, concat_dim)
+class GetS3Creds(beam.DoFn):
+    def process(self, _):
+        if auth_mode == 'iamrole':
+            import boto3
+            client = boto3.client('sts')
+            creds = client.assume_role(
+                RoleArn=aws_role_arn,
+                RoleSessionName='mursst-pangeo-forge',
+            )['Credentials']
+            os.environ['AWS_ACCESS_KEY_ID'] = creds['AccessKeyId']
+            os.environ['AWS_SECRET_ACCESS_KEY'] = creds['SecretAccessKey']
+            os.environ['AWS_SESSION_TOKEN'] = creds['SessionToken']
+            return f"Credentials set via assumed IAM Role {aws_role_arn}"
+        elif auth_mode == 'edl': 
+            login_resp = requests.get(CREDENTIALS_API, allow_redirects=False)
+            login_resp.raise_for_status()
 
-def get_s3_creds(username: str = None, password: str = None, credentials_api: str = CREDENTIALS_API):
-    if auth_mode == 'iamrole':
-        import boto3
-        client = boto3.client('sts')
-        creds = client.assume_role(
-            RoleArn=aws_role_arn,
-            RoleSessionName='mursst-pangeo-forge',
-        )['Credentials']
-        os.environ.set('AWS_ACCESS_KEY_ID', creds['AccessKeyId'])
-        os.environ.set('AWS_SECRET_ACCESS_KEY', creds['SecretAccessKey'])
-        os.environ.set('AWS_SESSION_TOKEN', creds['SessionToken'])
-        return f"Credentials set via assumed IAM Role {aws_role_arn}"
-    elif auth_mode == 'edl': 
-        login_resp = requests.get(CREDENTIALS_API, allow_redirects=False)
-        login_resp.raise_for_status()
+            encoded_auth = base64.b64encode(f'{ED_USERNAME}:{ED_PASSWORD}'.encode('ascii'))
+            auth_redirect = requests.post(
+                login_resp.headers['location'],
+                data={'credentials': encoded_auth},
+                headers={'Origin': CREDENTIALS_API},
+                allow_redirects=False,
+            )
+            auth_redirect.raise_for_status()
 
-        encoded_auth = base64.b64encode(f'{username}:{password}'.encode('ascii'))
-        auth_redirect = requests.post(
-            login_resp.headers['location'],
-            data={'credentials': encoded_auth},
-            headers={'Origin': credentials_api},
-            allow_redirects=False,
-        )
-        auth_redirect.raise_for_status()
+            final = requests.get(auth_redirect.headers['location'], allow_redirects=False)
+            results = requests.get(CREDENTIALS_API, cookies={'accessToken': final.cookies['accessToken']})
+            results.raise_for_status()
 
-        final = requests.get(auth_redirect.headers['location'], allow_redirects=False)
-        results = requests.get(CREDENTIALS_API, cookies={'accessToken': final.cookies['accessToken']})
-        results.raise_for_status()
-
-        creds = json.loads(results.content)
-        os.environ.set('AWS_ACCESS_KEY_ID', creds['accessKeyId'])
-        os.environ.set('AWS_SECRET_ACCESS_KEY', creds['secretAccessKey'])
-        os.environ.set('AWS_SESSION_TOKEN', creds['sessionToken'])
-        return "Credentials set via Earthdata Login"
+            creds = json.loads(results.content)
+            os.environ['AWS_ACCESS_KEY_ID'] = creds['accessKeyId']
+            os.environ['AWS_SECRET_ACCESS_KEY'] = creds['secretAccessKey']
+            os.environ['AWS_SESSION_TOKEN'] = creds['sessionToken']
+            return "Credentials set via Earthdata Login"
     
 recipe = (
     beam.Create(pattern.items())
-    | "Set AWS Credentials" >> beam.ParDo(get_s3_creds(ED_USERNAME, ED_PASSWORD))
+    | "Set AWS Credentials" >> beam.ParDo(GetS3Creds())
     | OpenWithKerchunk(
         remote_protocol='s3',
         file_type=pattern.file_type,

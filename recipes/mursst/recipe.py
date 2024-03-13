@@ -50,12 +50,16 @@ pattern = FilePattern(make_filename, concat_dim)
 
 class GetS3Creds(beam.DoFn):
     def process(self, element):
+        if all(k in os.environ for k in ('AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_SESSION_TOKEN')):
+            print("Credentials already set")
+            yield element
         if auth_mode == 'iamrole':
             import boto3
             client = boto3.client('sts')
             creds = client.assume_role(
                 RoleArn=aws_role_arn,
                 RoleSessionName='mursst-pangeo-forge',
+                DurationSeconds=43200,
             )['Credentials']
             os.environ['AWS_ACCESS_KEY_ID'] = creds['AccessKeyId']
             os.environ['AWS_SECRET_ACCESS_KEY'] = creds['SecretAccessKey']

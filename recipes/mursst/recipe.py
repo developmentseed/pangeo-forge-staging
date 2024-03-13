@@ -20,6 +20,7 @@ ED_USERNAME = os.environ.get('EARTHDATA_USERNAME')
 ED_PASSWORD = os.environ.get('EARTHDATA_PASSWORD')
 auth_mode = os.environ.get('AUTH_MODE', 'edl')
 aws_role_arn = os.environ.get('AWS_ROLE_ARN')
+
 if auth_mode not in ('edl', 'iamrole'):
     raise ValueError(f'Unsupported auth mode: {auth_mode}')
 
@@ -55,12 +56,10 @@ def get_s3_creds(username: str = None, password: str = None, credentials_api: st
             RoleArn=aws_role_arn,
             RoleSessionName='mursst-pangeo-forge',
         )['Credentials']
-        return {
-            'key': creds['AccessKeyId'],
-            'secret': creds['SecretAccessKey'],
-            'token': creds['SessionToken'],
-            'anon': False,
-        }
+        os.environ.set('AWS_ACCESS_KEY_ID', creds['AccessKeyId'])
+        os.environ.set('AWS_SECRET_ACCESS_KEY', creds['SecretAccessKey'])
+        os.environ.set('AWS_SESSION_TOKEN', creds['SessionToken'])
+        return f"Credentials set via assumed IAM Role {aws_role_arn}"
     elif auth_mode == 'edl': 
         login_resp = requests.get(CREDENTIALS_API, allow_redirects=False)
         login_resp.raise_for_status()
@@ -75,45 +74,31 @@ def get_s3_creds(username: str = None, password: str = None, credentials_api: st
         auth_redirect.raise_for_status()
 
         final = requests.get(auth_redirect.headers['location'], allow_redirects=False)
-        #import pdb; pdb.set_trace()
         results = requests.get(CREDENTIALS_API, cookies={'accessToken': final.cookies['accessToken']})
-        #import pdb; pdb.set_trace()
         results.raise_for_status()
 
         creds = json.loads(results.content)
-        return {
-            'key': creds['accessKeyId'],
-            'secret': creds['secretAccessKey'],
-            'token': creds['sessionToken'],
-            'anon': False,
-        }
-
-
-class WithCredentialsOpenWithKerchunk(beam.PTransform):
-    def expand(self, pcoll):
-        # Apply the inner transform, passing credentials
-        return pcoll | "Process With Credentials" >> OpenWithKerchunk(
-            remote_protocol='s3',
-            file_type=pattern.file_type,
-            # lat/lon are around 5k, this is the best option for forcing kerchunk to inline them
-            inline_threshold=6000,
-            storage_options=get_s3_creds(ED_USERNAME, ED_PASSWORD),
-        )
-    
-class WithCredentialsWriteCombinedReference(beam.PTransform):
-    def expand(self, pcoll):
-        # Apply the inner transform, passing credentials
-        return pcoll | "Process With Credentials" >> WriteCombinedReference(
-            concat_dims=CONCAT_DIMS,
-            identical_dims=IDENTICAL_DIMS,
-            store_name=SHORT_NAME,
-            remote_options=get_s3_creds(ED_USERNAME, ED_PASSWORD),
-            remote_protocol='s3',
-            mzz_kwargs={'coo_map': {"time": "cf:time"}, 'inline_threshold': 0}
-        )
+        os.environ.set('AWS_ACCESS_KEY_ID', creds['accessKeyId'])
+        os.environ.set('AWS_SECRET_ACCESS_KEY', creds['secretAccessKey'])
+        os.environ.set('AWS_SESSION_TOKEN', creds['sessionToken'])
+        return "Credentials set via Earthdata Login"
     
 recipe = (
     beam.Create(pattern.items())
-    | WithCredentialsOpenWithKerchunk()
-    | WithCredentialsWriteCombinedReference()
+    | "Set AWS Credentials" >> beam.ParDo(get_s3_creds, ED_USERNAME, ED_PASSWORD)
+    | OpenWithKerchunk(
+        remote_protocol='s3',
+        file_type=pattern.file_type,
+        # lat/lon are around 5k, this is the best option for forcing kerchunk to inline them
+        inline_threshold=6000,
+        storage_options={'anon': False },
+    )
+    | WriteCombinedReference(
+        concat_dims=CONCAT_DIMS,
+        identical_dims=IDENTICAL_DIMS,
+        store_name=SHORT_NAME,
+        remote_options={'anon': False },
+        remote_protocol='s3',
+        mzz_kwargs={'coo_map': {"time": "cf:time"}, 'inline_threshold': 0}
+    )
 )

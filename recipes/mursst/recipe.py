@@ -14,8 +14,6 @@ from requests.auth import HTTPBasicAuth
 from pangeo_forge_recipes.patterns import ConcatDim, FilePattern
 from pangeo_forge_recipes.transforms import OpenWithKerchunk, WriteCombinedReference
 
-S3_REL = 'http://esipfed.org/ns/fedsearch/1.1/s3#'
-
 ED_USERNAME = os.environ.get('EARTHDATA_USERNAME')
 ED_PASSWORD = os.environ.get('EARTHDATA_PASSWORD')
 auth_mode = os.environ.get('AUTH_MODE', 'edl')
@@ -34,7 +32,7 @@ missing_date_strings = ['2021-02-20', '2021-02-21', '2022-11-09']
 missing_dates = pd.to_datetime(missing_date_strings)
 dates = [
     d.to_pydatetime().strftime('%Y%m%d')
-    for d in pd.date_range('2002-06-01', '2023-02-23', freq='D')
+    for d in pd.date_range('2002-06-01', '2002-08-01', freq='D')
     if d not in missing_dates
 ]
 
@@ -53,19 +51,29 @@ class GetS3Creds(beam.DoFn):
         if all(k in os.environ for k in ('AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_SESSION_TOKEN')):
             print("Credentials already set")
             yield element
+            
         if auth_mode == 'iamrole':
-            import boto3
-            client = boto3.client('sts')
-            creds = client.assume_role(
-                RoleArn=aws_role_arn,
-                RoleSessionName='mursst-pangeo-forge',
-                DurationSeconds=43200,
-            )['Credentials']
-            os.environ['AWS_ACCESS_KEY_ID'] = creds['AccessKeyId']
-            os.environ['AWS_SECRET_ACCESS_KEY'] = creds['SecretAccessKey']
-            os.environ['AWS_SESSION_TOKEN'] = creds['SessionToken']
-            print(f"Credentials set via assumed IAM Role {aws_role_arn}")
-            yield element
+            # If AWS_ROLE_ARN is none, it should be that the current process
+            # is already assuming or using a role that has access to the data,
+            # as in the case of a NASA JupyterHub like hub.openveda.cloud.
+            #
+            # If AWS_ROLE_ARN is NOT none, it should be that the current process
+            # can assume the role and the role has access to the data.
+            if aws_role_arn == None:
+                yield element
+            else:             
+                import boto3
+                client = boto3.client('sts')
+                creds = client.assume_role(
+                    RoleArn=aws_role_arn,
+                    RoleSessionName='mursst-pangeo-forge',
+                    DurationSeconds=43200,
+                )['Credentials']
+                os.environ['AWS_ACCESS_KEY_ID'] = creds['AccessKeyId']
+                os.environ['AWS_SECRET_ACCESS_KEY'] = creds['SecretAccessKey']
+                os.environ['AWS_SESSION_TOKEN'] = creds['SessionToken']
+                print(f"Credentials set via assumed IAM Role {aws_role_arn}")
+                yield element
         elif auth_mode == 'edl': 
             login_resp = requests.get(CREDENTIALS_API, allow_redirects=False)
             login_resp.raise_for_status()

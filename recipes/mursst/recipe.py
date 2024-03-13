@@ -19,7 +19,7 @@ S3_REL = 'http://esipfed.org/ns/fedsearch/1.1/s3#'
 ED_USERNAME = os.environ.get('EARTHDATA_USERNAME')
 ED_PASSWORD = os.environ.get('EARTHDATA_PASSWORD')
 auth_mode = os.environ.get('AUTH_MODE', 'edl')
-
+aws_role_arn = os.environ.get('AWS_ROLE_ARN')
 if auth_mode not in ('edl', 'iamrole'):
     raise ValueError(f'Unsupported auth mode: {auth_mode}')
 
@@ -52,7 +52,7 @@ def get_s3_creds(username: str = None, password: str = None, credentials_api: st
         import boto3
         client = boto3.client('sts')
         creds = client.assume_role(
-            RoleArn=os.environ.get('AWS_ROLE_ARN'),
+            RoleArn=aws_role_arn,
             RoleSessionName='mursst-pangeo-forge',
         )['Credentials']
         return {

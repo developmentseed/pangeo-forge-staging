@@ -47,8 +47,9 @@ def make_filename(time):
 
 concat_dim = ConcatDim('time', dates, nitems_per_file=1)
 pattern = FilePattern(make_filename, concat_dim)
+
 class GetS3Creds(beam.DoFn):
-    def process(self, _):
+    def process(self, element):
         if auth_mode == 'iamrole':
             import boto3
             client = boto3.client('sts')
@@ -59,7 +60,8 @@ class GetS3Creds(beam.DoFn):
             os.environ['AWS_ACCESS_KEY_ID'] = creds['AccessKeyId']
             os.environ['AWS_SECRET_ACCESS_KEY'] = creds['SecretAccessKey']
             os.environ['AWS_SESSION_TOKEN'] = creds['SessionToken']
-            return f"Credentials set via assumed IAM Role {aws_role_arn}"
+            print(f"Credentials set via assumed IAM Role {aws_role_arn}")
+            yield element
         elif auth_mode == 'edl': 
             login_resp = requests.get(CREDENTIALS_API, allow_redirects=False)
             login_resp.raise_for_status()
@@ -81,7 +83,8 @@ class GetS3Creds(beam.DoFn):
             os.environ['AWS_ACCESS_KEY_ID'] = creds['accessKeyId']
             os.environ['AWS_SECRET_ACCESS_KEY'] = creds['secretAccessKey']
             os.environ['AWS_SESSION_TOKEN'] = creds['sessionToken']
-            return "Credentials set via Earthdata Login"
+            print("Credentials set via Earthdata Login")
+            yield element
     
 recipe = (
     beam.Create(pattern.items())

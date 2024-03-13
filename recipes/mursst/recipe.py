@@ -85,7 +85,7 @@ def get_s3_creds(username: str = None, password: str = None, credentials_api: st
     
 recipe = (
     beam.Create(pattern.items())
-    | "Set AWS Credentials" >> beam.ParDo(get_s3_creds, ED_USERNAME, ED_PASSWORD)
+    | "Set AWS Credentials" >> beam.ParDo(get_s3_creds(ED_USERNAME, ED_PASSWORD))
     | OpenWithKerchunk(
         remote_protocol='s3',
         file_type=pattern.file_type,

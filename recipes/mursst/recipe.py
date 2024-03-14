@@ -46,6 +46,8 @@ def make_filename(time):
 concat_dim = ConcatDim('time', dates, nitems_per_file=1)
 pattern = FilePattern(make_filename, concat_dim)
 
+# NOTE: This is a workaround so we can set credentials on the workers at runtime, rather then when the recipe is packaged.
+# Eventually credential setting should be incorporated into pangeo-forge-recipes.
 class GetS3Creds(beam.DoFn):
     def process(self, element):
         if all(k in os.environ for k in ('AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_SESSION_TOKEN')):
